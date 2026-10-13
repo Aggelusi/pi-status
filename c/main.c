@@ -41,6 +41,15 @@ static void append(char *out, size_t cap, size_t *len, const char *fmt, ...) {
     }
 }
 
+static int read_cpu_temp(double *temp_c) {
+    char buf[256];
+    long milli;
+    if (read_file("/sys/class/thermal/thermal_zone0/temp", buf, sizeof buf) != 0) return -1;
+    if (sscanf(buf, "%ld", &milli) != 1) return -1;
+    *temp_c = milli / 1000.0;
+    return 0;
+}
+
 static int read_load_avg(double *l1, double *l5, double *l15) {
     char buf[256];
     if (read_file("/proc/loadavg", buf, sizeof buf) != 0) return -1;
@@ -68,13 +77,18 @@ static void build_status_json(char *out, size_t cap) {
     double l1 = 0, l5 = 0, l15 = 0;
     int have_load = (read_load_avg(&l1, &l5, &l15) == 0);
 
+    double temp_c = 0;
+    int have_cpu_temp = (read_cpu_temp(&temp_c) == 0);
+
     /* ---- phase 2: build the JSON ---- */
     size_t len = 0;
     append(out, cap, &len, "{\"hostname\":\"%s\",", host);
     if (have_uptime) append(out, cap, &len, "\"uptime_seconds\":%.2f,", uptime);
     else             append(out, cap, &len, "\"uptime_seconds\":null,");
-    if (have_load)   append(out, cap, &len, "\"load_avg\":[%.2f,%.2f,%.2f]", l1, l5, l15);
-    else             append(out, cap, &len, "\"load_avg\":null");
+    if (have_load)     append(out, cap, &len, "\"load_avg\":[%.2f,%.2f,%.2f],", l1, l5, l15);
+    else               append(out, cap, &len, "\"load_avg\":null,");
+    if (have_cpu_temp) append(out, cap, &len, "\"cpu_temp_c\":%.1f", temp_c);
+    else               append(out, cap, &len, "\"cpu_temp_c\":null");
     append(out, cap, &len, "}\n");
 }
 
