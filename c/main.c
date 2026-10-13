@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <stdarg.h>
 
 static void send_response(int fd, const char* status, const char* body) {
     char response[1024];
@@ -28,16 +29,41 @@ static int read_file(const char* path, char* buf, size_t cap) {
     return 0;
 }
 
+static void append(char *out, size_t cap, size_t *len, const char *fmt, ...) {
+    if (*len >= cap) return;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(out + *len, cap - *len, fmt, ap);
+    va_end(ap);
+    if (n > 0) {
+        *len += (size_t)n;
+        if (*len > cap) *len = cap;
+    }
+}
+
 static void build_status_json(char *out, size_t cap) {
     char buf[256];
-    double uptime;
 
+    /* ---- phase 1: read the values ---- */
+    char host[256] = "unknown";
+    if (read_file("/proc/sys/kernel/hostname", buf, sizeof buf) == 0) {
+        buf[strcspn(buf, "\r\n")] = '\0';        // cut off the trailing newline
+        if (buf[0] != '\0') snprintf(host, sizeof host, "%s", buf);
+    }
+
+    double uptime = 0;
+    int have_uptime = 0;
     if (read_file("/proc/uptime", buf, sizeof buf) == 0
         && sscanf(buf, "%lf", &uptime) == 1) {
-        snprintf(out, cap, "{\"uptime_seconds\":%.2f}\n", uptime);
-    } else {
-        snprintf(out, cap, "{\"uptime_seconds\":null}\n");
+        have_uptime = 1;
     }
+
+    /* ---- phase 2: build the JSON ---- */
+    size_t len = 0;
+    append(out, cap, &len, "{\"hostname\":\"%s\",", host);
+    if (have_uptime) append(out, cap, &len, "\"uptime_seconds\":%.2f", uptime);
+    else             append(out, cap, &len, "\"uptime_seconds\":null");
+    append(out, cap, &len, "}\n");
 }
 
 int main() {
