@@ -41,6 +41,13 @@ static void append(char *out, size_t cap, size_t *len, const char *fmt, ...) {
     }
 }
 
+static int read_load_avg(double *l1, double *l5, double *l15) {
+    char buf[256];
+    if (read_file("/proc/loadavg", buf, sizeof buf) != 0) return -1;
+    if (sscanf(buf, "%lf %lf %lf", l1, l5, l15) != 3) return -1;
+    return 0;
+}
+
 static void build_status_json(char *out, size_t cap) {
     char buf[256];
 
@@ -58,11 +65,16 @@ static void build_status_json(char *out, size_t cap) {
         have_uptime = 1;
     }
 
+    double l1 = 0, l5 = 0, l15 = 0;
+    int have_load = (read_load_avg(&l1, &l5, &l15) == 0);
+
     /* ---- phase 2: build the JSON ---- */
     size_t len = 0;
     append(out, cap, &len, "{\"hostname\":\"%s\",", host);
-    if (have_uptime) append(out, cap, &len, "\"uptime_seconds\":%.2f", uptime);
-    else             append(out, cap, &len, "\"uptime_seconds\":null");
+    if (have_uptime) append(out, cap, &len, "\"uptime_seconds\":%.2f,", uptime);
+    else             append(out, cap, &len, "\"uptime_seconds\":null,");
+    if (have_load)   append(out, cap, &len, "\"load_avg\":[%.2f,%.2f,%.2f]", l1, l5, l15);
+    else             append(out, cap, &len, "\"load_avg\":null");
     append(out, cap, &len, "}\n");
 }
 
