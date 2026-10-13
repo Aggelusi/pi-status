@@ -41,6 +41,22 @@ static void append(char *out, size_t cap, size_t *len, const char *fmt, ...) {
     }
 }
 
+static int read_meminfo(long *total, long *avail) {
+    char buf[8192];
+    *total = -1;
+    *avail = -1;
+    if (read_file("/proc/meminfo", buf, sizeof buf) != 0) return -1;
+
+    char *save = NULL;
+    for (char *line = strtok_r(buf, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        if (strncmp(line, "MemTotal:", 9) == 0)
+            sscanf(line + 9, "%ld", total);
+        else if (strncmp(line, "MemAvailable:", 13) == 0)
+            sscanf(line + 13, "%ld", avail);
+    }
+    return 0;
+}
+
 static int read_cpu_temp(double *temp_c) {
     char buf[256];
     long milli;
@@ -80,6 +96,9 @@ static void build_status_json(char *out, size_t cap) {
     double temp_c = 0;
     int have_cpu_temp = (read_cpu_temp(&temp_c) == 0);
 
+    long mem_total, mem_avail;
+    read_meminfo(&mem_total, &mem_avail);
+
     /* ---- phase 2: build the JSON ---- */
     size_t len = 0;
     append(out, cap, &len, "{\"hostname\":\"%s\",", host);
@@ -87,6 +106,10 @@ static void build_status_json(char *out, size_t cap) {
     else             append(out, cap, &len, "\"uptime_seconds\":null,");
     if (have_load)     append(out, cap, &len, "\"load_avg\":[%.2f,%.2f,%.2f],", l1, l5, l15);
     else               append(out, cap, &len, "\"load_avg\":null,");
+    if (mem_total >= 0) append(out, cap, &len, "\"mem_total_kb\":%ld,", mem_total);
+    else                append(out, cap, &len, "\"mem_total_kb\":null,");
+    if (mem_avail >= 0) append(out, cap, &len, "\"mem_available_kb\":%ld,", mem_avail);
+    else                append(out, cap, &len, "\"mem_available_kb\":null,");
     if (have_cpu_temp) append(out, cap, &len, "\"cpu_temp_c\":%.1f", temp_c);
     else               append(out, cap, &len, "\"cpu_temp_c\":null");
     append(out, cap, &len, "}\n");
