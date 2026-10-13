@@ -19,6 +19,27 @@ static void send_response(int fd, const char* status, const char* body) {
     write(fd, response, len);
 }
 
+static int read_file(const char* path, char* buf, size_t cap) {
+    FILE *f = fopen(path, "r");
+    if (!f)  return -1;
+    size_t n = fread(buf, 1, cap - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return 0;
+}
+
+static void build_status_json(char *out, size_t cap) {
+    char buf[256];
+    double uptime;
+
+    if (read_file("/proc/uptime", buf, sizeof buf) == 0
+        && sscanf(buf, "%lf", &uptime) == 1) {
+        snprintf(out, cap, "{\"uptime_seconds\":%.2f}\n", uptime);
+    } else {
+        snprintf(out, cap, "{\"uptime_seconds\":null}\n");
+    }
+}
+
 int main() {
 
     int server = socket(AF_INET, SOCK_STREAM, 0);
@@ -52,7 +73,9 @@ int main() {
         if (sscanf(req, "%15s %255s", method, path) == 2
             && strcmp(method, "GET") == 0
             && strcmp(path, "/status") == 0) {
-            send_response(client, "200 OK", "{\"hello\":\"world\"}\n");
+                char body[512];
+                build_status_json(body, sizeof body);
+                send_response(client, "200 OK", body);
         } else {
             send_response(client, "404 Not Found", "{\"error\":\"not found\"}\n");
         }
