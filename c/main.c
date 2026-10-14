@@ -4,6 +4,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdarg.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <signal.h>
 
 static void send_response(int fd, const char* status, const char* body) {
     char response[1024];
@@ -115,8 +118,32 @@ static void build_status_json(char *out, size_t cap) {
     append(out, cap, &len, "}\n");
 }
 
-int main() {
+static void *handle_client(void *arg) {
+    int client = *(int*)arg;
+    free(arg);
 
+    char req[2048];
+    ssize_t n = read(client, req, sizeof req - 1);
+    if (n > 0) {
+        req[n] = '\0';   // read() does not add a terminator, so you must
+
+        char method[16], path[256];
+        if (sscanf(req, "%15s %255s", method, path) == 2
+            && strcmp(method, "GET") == 0
+            && strcmp(path, "/status") == 0) {
+                char body[512];
+                build_status_json(body, sizeof body);
+                send_response(client, "200 OK", body);
+        } else {
+            send_response(client, "404 Not Found", "{\"error\":\"not found\"}\n");
+        }
+    }
+    close(client);
+    return NULL;
+}
+
+int main() {
+    signal(SIGPIPE, SIG_IGN);
     int server = socket(AF_INET, SOCK_STREAM, 0);
     if (server < 0) { perror("socket"); return 1; }
 
@@ -139,22 +166,18 @@ int main() {
         int client = accept(server, NULL, NULL);
         if (client < 0) { perror("accept"); continue; }
 
-    char req[2048];
-    ssize_t n = read(client, req, sizeof req - 1);
-    if (n > 0) {
-        req[n] = '\0';   // read() does not add a terminator, so you must
+        int *arg = malloc(sizeof *arg);
+        if(!arg) {close(client); continue;}
+        *arg = client;
 
-        char method[16], path[256];
-        if (sscanf(req, "%15s %255s", method, path) == 2
-            && strcmp(method, "GET") == 0
-            && strcmp(path, "/status") == 0) {
-                char body[512];
-                build_status_json(body, sizeof body);
-                send_response(client, "200 OK", body);
-        } else {
-            send_response(client, "404 Not Found", "{\"error\":\"not found\"}\n");
+        pthread_t tid;
+        if (pthread_create(&tid, NULL, handle_client, arg) != 0) {
+            perror("pthread_create");
+            free(arg);
+            close(client);
+            continue;
         }
-    }
-    close(client);
+        pthread_detach(tid);
+
     }
 }
