@@ -1,0 +1,6 @@
+# C
+c/pi-status
+*.o
+
+# Rust
+rust/target/
